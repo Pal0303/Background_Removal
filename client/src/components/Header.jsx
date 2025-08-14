@@ -1,7 +1,10 @@
-import React from 'react'
+import React, { useContext } from 'react'
 import { assets } from '../assets/assets'
+import { AppContext } from '../context/AppContext'
 
 const Header = () => {
+    const {removeBg} = useContext(AppContext)
+
     return (
         <div className='flex items-center justify-between max-sm:flex-col-reverse gap-y-10 px-4 mt-10 lg:px-44 sm:mt-10'>
 
@@ -13,16 +16,16 @@ const Header = () => {
                     <br className='max-md:hidden'/>dssdsa weere saasfs jhhn sdad myjym ss thnht
                 </p>
                 <div>
-                    <input type='file' name='' id='upload1' hidden></input>
+                    <input onChange={e => removeBg(e.target.files[0])} type='file' accept='image/*' id='upload1' hidden />
                     <label htmlFor='upload1' className='gap-3 px-8 py-3.5 inline-flex rounded-full cursor-pointer bg-gradient-to-r from-violet-600 to-fuchsia-500 m-auto hover:scale-105 transition-all duration-700'>
-                        <img width={20} src={assets.upload_btn_icon} alt=''></img>
+                        <img width={20} src={assets.upload_btn_icon} alt='' />
                         <p className='text-white text-sm'>Upload your image</p>
                     </label>
                 </div>
             </div>
 
             <div className='w-full max-w-md'>
-                <img src={assets.header_img}></img>
+                <img src={assets.header_img} alt='Header' />
             </div>
 
         </div>
