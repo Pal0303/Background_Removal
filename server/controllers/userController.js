@@ -5,52 +5,71 @@ import transactionModel from "../models/transactionModel.js"
 
 const clerkWebhooks = async (req, res) => {
     try {
+        const requiredHeaders = ['svix-id', 'svix-signature', 'svix-timestamp']
+        for (const header of requiredHeaders) {
+            if (!req.headers[header]) {
+                return res.status(400).json({ error: `Missing required header: ${header}` })
+            }
+        }
+
         const whook = new Webhook(process.env.CLERK_WEBHOOK_SECRET)
-        await whook.verify(json.stringify(req.body), {
+        await whook.verify(JSON.stringify(req.body), {
             "svix-id": req.headers["svix-id"],
             "svix-signature": req.headers["svix-signature"],
             "svix-timestamp": req.headers["svix-timestamp"]
         })
 
         const { data, type } = req.body
+        const primaryEmail = data.email_addresses.find(email => email.id === data.primary_email_address_id)
+        const email = primaryEmail ? primaryEmail.email_address : data.email_addresses[0]?.email_address
 
         switch (type) {
             case "user.created": {
                 const userData = {
                     clerkId: data.id,
-                    email: data.email_addresses[0].email_address,
+                    email: email,
                     photo: data.image_url,
                     firstName: data.first_name,
                     lastName: data.last_name
                 }
 
                 await userModel.create(userData)
-                res.json({})
+                res.status(200).json({ success: true })
                 break;
             }
             case "user.updated": {
                 const userData = {
-                    email: data.email_addresses[0].email_address,
+                    email: email,
                     photo: data.image_url,
                     firstName: data.first_name,
                     lastName: data.last_name
                 }
 
-                await userModel.findOneAndUpdate({ clerkId: data.id }, userData)
-                res.json({})
+                await userModel.findOneAndUpdate(
+                    { clerkId: data.id },
+                    userData,
+                    { new: true }
+                )
+                res.status(200).json({ success: true })
                 break;
             }
             case "user.deleted": {
                 await userModel.findOneAndDelete({ clerkId: data.id })
-                res.json({})
+                res.status(200).json({ success: true })
                 break;
             }
             default:
+                res.status(200).json({ success: true, message: 'Event type not handled' })
                 break;
         }
     } catch (error) {
-        console.log(error.message);
-        res.json({ success: false, message: error.message });
+        console.error('Webhook error:', error.message);
+
+        if (error.message.includes('Webhook verification failed')) {
+            return res.status(401).json({ success: false, message: 'Unauthorized' })
+        }
+
+        res.status(500).json({ success: false, message: 'Internal server error' })
     }
 }
 
@@ -139,21 +158,21 @@ const paymentRazorpay = async (req, res) => {
 
 const verifyRazorpay = async (req, res) => {
     try {
-        const {razorpay_order_id} = req.body
+        const { razorpay_order_id } = req.body
         const orderinfo = await razorpayInstance.orders.fetch(razorpay_order_id)
 
-        if(orderinfo.status === 'paid'){
+        if (orderinfo.status === 'paid') {
             const transactionData = await transactionModel.findById(orderinfo.receipt)
-            if(transactionData.payment){
-                return res.json({success: false, message: 'Payment Failed'})
+            if (transactionData.payment) {
+                return res.json({ success: false, message: 'Payment Failed' })
             }
 
-            const userData = await userModel.findOne({clerkId: transactionData.clerkId})
+            const userData = await userModel.findOne({ clerkId: transactionData.clerkId })
             const creditBalance = userData.creditBalance + transactionData.credits
-            await userModel.findByIdAndUpdate(userData._id, {creditBalance})
+            await userModel.findByIdAndUpdate(userData._id, { creditBalance })
 
-            await transactionModel.findByIdAndUpdate(transactionData._id, {payment: true})
-            res.json({success: true, message: 'Credits Added'})
+            await transactionModel.findByIdAndUpdate(transactionData._id, { payment: true })
+            res.json({ success: true, message: 'Credits Added' })
         }
     } catch (error) {
         console.log(error.message);
