@@ -3,6 +3,7 @@ import userModel from "../models/userModel.js";
 import razorpay from 'razorpay';
 import transactionModel from "../models/transactionModel.js";
 import connectDB from "../configs/mongodb.js";
+import mongoose from "mongoose"; 
 
 const razorpayInstance = new razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -76,7 +77,14 @@ const clerkWebhooks = async (req, res) => {
 
     console.log('Processing webhook:', { type, clerkId: data.id, email });
 
-    const session = await mongoose.startSession();
+    let session;
+    try {
+      session = await mongoose.startSession();
+    } catch (sessionError) {
+      console.error('Failed to start session:', sessionError.message);
+      processedWebhooks.set(webhookId, { status: 'failed', timestamp: Date.now(), error: sessionError.message });
+      return;
+    }
     
     try {
       session.startTransaction();
@@ -116,6 +124,7 @@ const clerkWebhooks = async (req, res) => {
               
               await userModel.create([userData], { session });
               created = true;
+              console.log('User created successfully:', data.id);
             } catch (error) {
               if (error.code === 11000) {
                 creationAttempts++;
@@ -147,16 +156,27 @@ const clerkWebhooks = async (req, res) => {
             }
           });
 
-          await userModel.findOneAndUpdate(
+          const result = await userModel.findOneAndUpdate(
             { clerkId: data.id },
             { $set: userData },
-            { session, upsert: false } 
+            { session, upsert: false, new: true }
           );
+          
+          if (!result) {
+            console.log('User not found for update:', data.id);
+          } else {
+            console.log('User updated successfully:', data.id);
+          }
           break;
         }
 
         case "user.deleted": {
-          await userModel.findOneAndDelete({ clerkId: data.id }, { session });
+          const result = await userModel.findOneAndDelete({ clerkId: data.id }, { session });
+          if (!result) {
+            console.log('User not found for deletion:', data.id);
+          } else {
+            console.log('User deleted successfully:', data.id);
+          }
           break;
         }
 
@@ -171,7 +191,6 @@ const clerkWebhooks = async (req, res) => {
       await session.abortTransaction();
       processedWebhooks.set(webhookId, { status: 'failed', timestamp: Date.now(), error: error.message });
       console.error('Webhook processing failed:', error.message);
-      throw error;
     } finally {
       session.endSession();
     }
@@ -183,7 +202,7 @@ const clerkWebhooks = async (req, res) => {
 const userCredits = async (req, res) => {
   try {
     await connectDBWithRetry();
-    
+
     const { clerkId } = req.user;
     const userData = await userModel.findOne({ clerkId });
 
@@ -200,7 +219,7 @@ const userCredits = async (req, res) => {
 
 async function connectDBWithRetry(maxRetries = 3) {
   let retries = 0;
-  
+
   while (retries < maxRetries) {
     try {
       await connectDB();
